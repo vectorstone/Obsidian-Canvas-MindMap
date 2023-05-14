@@ -62,6 +62,7 @@ export default class CanvasMindMap extends Plugin {
 
 	patchCanvas() {
 		const createEdge = async (node1: any, node2: any, canvas: any)=> {
+			console.log("createEdge")
 			if(requireApiVersion("1.1.9")) {
 				addEdge(canvas, random(16), {
 					fromOrTo: "from",
@@ -117,6 +118,7 @@ export default class CanvasMindMap extends Plugin {
 		}
 
 		const navigate = (canvas: any, direction: string) => {
+			console.log(navigate)
 			const currentSelection = canvas.selection;
 			if(currentSelection.size !== 1) return;
 
@@ -168,6 +170,7 @@ export default class CanvasMindMap extends Plugin {
 		}
 
 		const createSperateNode = (canvas: any, direction: string) => {
+			console.log("createSperateNode")
 			let selection = canvas.selection;
 			if(selection.size !== 1) return;
 
@@ -210,6 +213,7 @@ export default class CanvasMindMap extends Plugin {
 		}
 
 		const createNode = async (canvas: any, parentNode: any, y: number) => {
+			console.log(createNode)
 			let tempChildNode;
 			if(!requireApiVersion("1.1.10")) {
 				tempChildNode = canvas.createTextNode({
@@ -246,6 +250,7 @@ export default class CanvasMindMap extends Plugin {
 		}
 
 		const startEditing = (canvas: any) => {
+			console.log("startEditing")
 			if(!canvas) return;
 
 			const selection = canvas.selection;
@@ -256,73 +261,118 @@ export default class CanvasMindMap extends Plugin {
 			node.startEditing();
 		}
 
+		// 创建子节点
 		const createChildNode = async (canvas: any) => {
+			console.log("createChildNode")
 			if (canvas.selection.size !== 1) return;
+
+			// 确定父节点
 			const parentNode = canvas.selection.entries().next().value[1];
 
-			// Get Previous Node Edges
-			let wholeHeight = 0;
-
+			// 找到所有父节点和子节点的边
 			let prevParentEdges = canvas.getEdgesForNode(parentNode).filter((item: any) => {
 				return (item.from.node.id === parentNode.id && item.to.side === "left")
 			});
 
 			let tempChildNode;
 
+			// 如果当前是第一个子节点，则子节点与父节点对齐
 			if (prevParentEdges.length === 0) {
 				tempChildNode = await createNode(canvas, parentNode, parentNode.y);
 			} else {
+				// 如果有一个或多个符合条件的边，则在连接到父节点左侧的底部节点下方创建一个新的子节点
+    			// 新的子节点的 y 位置基于底部节点和父节点之间的距离计算得出
 				let prevAllNodes = [];
+				// 找到所有的子节点
 				for (let i = 0; i < prevParentEdges?.length; i++) {
 					let node = prevParentEdges[i].to.node;
 					prevAllNodes.push(node);
 				}
-
+				// 如果子节点超过1个，则按照y方向(上下方向)进行排序
 				if (prevAllNodes.length > 1) {
 					prevAllNodes.sort((a: any, b: any) => {
 						return a.y - b.y;
 					});
 				}
+
+				// prevAllNodes[prevAllNodes.length - 1]?.y   最后一个子节点的y坐标
+				// prevAllNodes[prevAllNodes.length - 1]?.height 最后一个子节点的高度
+				// 所以新加的子节点的y坐标等于其上一个子节点+20
 				const distanceY = prevAllNodes[prevAllNodes.length - 1]?.y + prevAllNodes[prevAllNodes.length - 1]?.height + 20;
+				// 创建子节点
 				tempChildNode = await createNode(canvas, parentNode, distanceY);
 
+				// 将新创建的子节点添加到先前节点列表中，并按 y 位置升序排序
 				prevAllNodes.push(tempChildNode)
 				prevAllNodes.sort((a: any, b: any) => {
 					return a.y - b.y;
 				});
 
 				// Check if this is a Mindmap
+				// 检查先前的节点是否在一条直线上（即它们是否具有相同的 x 位置）
 				if (prevAllNodes.length === 1) return;
-
-				if (prevAllNodes.length > 1 && prevAllNodes[0].x === prevAllNodes[1]?.x) {
-					let preNode;
-					wholeHeight = prevAllNodes.length * (parentNode.height + 20);
-
-					for (let i = 0; i < prevAllNodes.length; i++) {
-						let tempNode;
-						if (i === 0) {
-							(tempNode = prevAllNodes[i]).moveTo({
-								x: tempChildNode.x,
-								y: parentNode.y + parentNode.height / 2 - (wholeHeight / 2)
-							});
-						} else {
-							(tempNode = prevAllNodes[i]).moveTo({
-								x: tempChildNode.x,
-								y: preNode.y + preNode.height + 20
-							});
-						}
-
-						canvas.requestSave();
-						preNode = tempNode;
-					}
-				}
+				adjustNodes(parentNode,prevAllNodes,canvas);
 			}
-
+			// 返回新创建的子节点
 			return tempChildNode;
 
 		}
 
+		// 计算出每个节点的子树的高度，其中子树的高度由子树的子树高度相加，最底层的子树高度则为childNodes.length * (parentNode.height + 20);
+		// 
+
+		const adjustNodes= async (parentNode: any,childNodes: any,  canvas: any)=>{
+			if (childNodes.length===0){
+				return 
+			}
+			// 定义一个名为 "preNode" 的变量，用于存储前一个节点
+			let preNode;
+			// 计算整行节点的高度，即所有节点的高度之和再加上节点之间的间距
+			const wholeHeight = childNodes.length * (parentNode.height + 20);
+			// 将每个节点移动到它的新位置并保存画布
+			for (let i = 0; i < childNodes.length; i++) {
+				let tempNode:any;
+				if (i === 0) {
+					// 如果是第一个节点，则将其移动到指定的位置
+					(tempNode = childNodes[i]).moveTo({
+						x: childNodes[0].x, // x不变
+						// parentNode.y + parentNode.height / 2 就是父节点的中线位置
+						// 然后减去(wholeHeight / 2) ，就是第一个节点的y坐标
+						y: parentNode.y + parentNode.height / 2 - (wholeHeight / 2) 
+					});
+				} else {
+					// 如果不是第一个节点，则将其移动到前一个节点的下方
+					(tempNode = childNodes[i]).moveTo({
+						x: childNodes[0].x, // x不变
+						y: preNode.y + preNode.height + 20 // y跟随前一个下移20
+					});
+				}
+
+				// 处理该节点的子节点
+				let prevAllNodes = [];
+				let prevParentEdges = canvas.getEdgesForNode(tempNode).filter((item: any) => {
+					return (item.from.node.id === tempNode.id && item.to.side === "left")
+				});
+				// 找到所有的子节点
+				for (let i = 0; i < prevParentEdges?.length; i++) {
+					let node = prevParentEdges[i].to.node;
+					prevAllNodes.push(node);
+				}
+				// 如果子节点超过1个，则按照y方向(上下方向)进行排序
+				if (prevAllNodes.length > 1) {
+					prevAllNodes.sort((a: any, b: any) => {
+						return a.y - b.y;
+					});
+				}
+				await adjustNodes(tempNode, prevAllNodes, canvas); // 递归调整
+				canvas.requestSave();
+				preNode = tempNode;
+			}
+		}
+
+			// 创建兄弟节点
 		const createSiblingNode = async (canvas: any) => {
+			console.log("createSiblingNode")
 			if (canvas.selection.size !== 1) return;
 			const childNode = canvas.selection.entries().next().value[1];
 
@@ -352,33 +402,13 @@ export default class CanvasMindMap extends Plugin {
 				return a.y - b.y;
 			});
 
-			// Check if this is a Mindmap
-			if (allnodes.length === 1) return;
-			if (allnodes.length > 1 && allnodes[0].x === allnodes[1]?.x) {
-				let preNode;
-				for (let i = 0; i < allnodes.length; i++) {
-					let tempNode;
-					if (i === 0) {
-						(tempNode = allnodes[i]).moveTo({
-							x: childNode.x,
-							y: parentNode.y + parentNode.height / 2 - (wholeHeight / 2)
-						});
-					} else {
-						(tempNode = allnodes[i]).moveTo({
-							x: childNode.x,
-							y: preNode.y + preNode.height + 20
-						});
-					}
-					preNode = tempNode;
-				}
-			}
-
-			canvas.requestSave();
-
+			adjustNodes(parentNode,allnodes,canvas)
+	
 			return tempChildNode;
 		}
 
 		const patchCanvas = () => {
+			console.log("patchCanvas")
 			const canvasView = app.workspace.getLeavesOfType("canvas").first()?.view;
 			// @ts-ignore
 			const canvas = canvasView?.canvas;
