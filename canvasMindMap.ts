@@ -269,7 +269,9 @@ export default class CanvasMindMap extends Plugin {
 			// 确定父节点
 			const parentNode = canvas.selection.entries().next().value[1];
 
-			// 找到所有父节点和子节点的边
+			
+
+			// 找到当前节点和子节点的边
 			let prevParentEdges = canvas.getEdgesForNode(parentNode).filter((item: any) => {
 				return (item.from.node.id === parentNode.id && item.to.side === "left")
 			});
@@ -311,64 +313,127 @@ export default class CanvasMindMap extends Plugin {
 				// Check if this is a Mindmap
 				// 检查先前的节点是否在一条直线上（即它们是否具有相同的 x 位置）
 				if (prevAllNodes.length === 1) return;
-				adjustNodes(parentNode,prevAllNodes,canvas);
+				adjustNodes(getRootNode(parentNode,canvas),canvas);
 			}
 			// 返回新创建的子节点
 			return tempChildNode;
 
 		}
 
-		// 计算出每个节点的子树的高度，其中子树的高度由子树的子树高度相加，最底层的子树高度则为childNodes.length * (parentNode.height + 20);
-		// 
-
-		const adjustNodes= async (parentNode: any,childNodes: any,  canvas: any)=>{
+		  const adjustNodes= async (parentNode: any, canvas: any)=>{
+			let childNodes = getChildNodes(parentNode,canvas)
 			if (childNodes.length===0){
 				return 
 			}
-			// 定义一个名为 "preNode" 的变量，用于存储前一个节点
-			let preNode;
-			// 计算整行节点的高度，即所有节点的高度之和再加上节点之间的间距
-			const wholeHeight = childNodes.length * (parentNode.height + 20);
-			// 将每个节点移动到它的新位置并保存画布
+
+			let bottomNodes = [];
 			for (let i = 0; i < childNodes.length; i++) {
+			  const childNode = childNodes[i];
+			  bottomNodes.push(...getBottomNodes(childNode,canvas)); // 获取当前节点的所有最底层子节点
+			}
+			// 定义一个名为 "preNode" 的变量，用于存储前一个节点
+			let preBottomNode;
+			// 计算整行节点的高度，即所有节点的高度之和再加上节点之间的间距
+			const wholeHeight = bottomNodes.length * (parentNode.height + 20);
+			// 将每个节点移动到它的新位置并保存画布
+			for (let i = 0; i < bottomNodes.length; i++) {
 				let tempNode:any;
 				if (i === 0) {
 					// 如果是第一个节点，则将其移动到指定的位置
-					(tempNode = childNodes[i]).moveTo({
-						x: childNodes[0].x, // x不变
+					(tempNode = bottomNodes[i]).moveTo({
+						x: bottomNodes[i].x, // x不变
 						// parentNode.y + parentNode.height / 2 就是父节点的中线位置
 						// 然后减去(wholeHeight / 2) ，就是第一个节点的y坐标
 						y: parentNode.y + parentNode.height / 2 - (wholeHeight / 2) 
 					});
 				} else {
 					// 如果不是第一个节点，则将其移动到前一个节点的下方
-					(tempNode = childNodes[i]).moveTo({
-						x: childNodes[0].x, // x不变
-						y: preNode.y + preNode.height + 20 // y跟随前一个下移20
+					(tempNode = bottomNodes[i]).moveTo({
+						x: bottomNodes[i].x, // x不变
+						y: preBottomNode.y + preBottomNode.height + 20 // y跟随前一个下移20
 					});
 				}
 
-				// 处理该节点的子节点
-				let prevAllNodes = [];
-				let prevParentEdges = canvas.getEdgesForNode(tempNode).filter((item: any) => {
-					return (item.from.node.id === tempNode.id && item.to.side === "left")
-				});
-				// 找到所有的子节点
-				for (let i = 0; i < prevParentEdges?.length; i++) {
-					let node = prevParentEdges[i].to.node;
-					prevAllNodes.push(node);
-				}
-				// 如果子节点超过1个，则按照y方向(上下方向)进行排序
-				if (prevAllNodes.length > 1) {
-					prevAllNodes.sort((a: any, b: any) => {
-						return a.y - b.y;
-					});
-				}
-				await adjustNodes(tempNode, prevAllNodes, canvas); // 递归调整
 				canvas.requestSave();
-				preNode = tempNode;
+				preBottomNode = tempNode;
 			}
+			adjustMiddleNodes(parentNode,canvas)
 		}
+
+		const adjustMiddleNodes = async (node:any,canvas:any)=>{
+			let childNodes = getChildNodes(node,canvas)
+			if (childNodes.length===0){
+				return 
+			}
+			let bottomNodes = [];
+			for (let i = 0; i < childNodes.length; i++) {
+			  const childNode = childNodes[i];
+			  adjustMiddleNodes(childNode,canvas)
+			  bottomNodes.push(...getBottomNodes(childNode,canvas)); // 获取当前节点的所有最底层子节点
+			}
+			const wholeHeight = bottomNodes.length * (node.height + 20);
+			node.moveTo({
+				x: node.x, // x不变
+				y: bottomNodes[0].y - node.height / 2 + (wholeHeight / 2) 
+			})
+			canvas.requestSave();
+			
+		}
+
+		  // 获取节点的所有子节点
+		const getChildNodes = (node: any, canvas: any) => {
+			let prevParentEdges = canvas.getEdgesForNode(node).filter((item: any) => {
+			return (item.from.node.id === node.id && item.to.side === "left");
+			});
+			let childNodes = [];
+			for (let i = 0; i < prevParentEdges.length; i++) {
+			let childNode = prevParentEdges[i].to.node;
+			childNodes.push(childNode);
+			}
+			if (childNodes.length > 1) {
+				childNodes.sort((a: any, b: any) => {
+				  return a.y - b.y;
+				});
+			  }
+			return childNodes;
+		};
+
+		const getRootNode = (node: any,canvas:any):any=>{
+			// 找到根节点
+			let prevParentEdgess = canvas.getEdgesForNode(node).filter((item: any) => {
+				return (item.to.node.id === node.id && item.from.side === "right")
+			});
+			if (prevParentEdgess.length==0){
+				return node
+			}
+			let parentNode = prevParentEdgess[0].from.node
+			return getRootNode(parentNode,canvas)
+		}
+		  
+		  // 获取节点的所有最底层子节点
+		  const getBottomNodes = (node: any,canvas: any):any[] => {
+			let childNodes=getChildNodes(node,canvas)
+			if (childNodes.length === 0) {
+				// 没有子节点则返回自身
+			  return [node];
+			} else {
+			  let bottomNodes = [];
+			  // 有子节点，则返回每个子节点的子节点
+			  for (let i = 0; i < childNodes.length; i++) {
+				bottomNodes.push(...getBottomNodes(childNodes[i],canvas));
+			  }
+			  return bottomNodes;
+			}
+		  };
+		  
+		  // 移动节点及其所有子节点
+		  const moveNodeWithChildren = (node: any, offsetY: number, canvas: any) => {
+			node.moveTo({ x: node.x, y: node.y + offsetY });
+			canvas.requestSave();
+			for (let i = 0; i < getChildNodes(node,canvas).length; i++) {
+			  moveNodeWithChildren(getChildNodes(node,canvas)[i], offsetY, canvas);
+			}
+		  };
 
 			// 创建兄弟节点
 		const createSiblingNode = async (canvas: any) => {
@@ -387,22 +452,7 @@ export default class CanvasMindMap extends Plugin {
 			const distanceY = childNode.y + childNode.height / 2 + 110;
 			const tempChildNode = await createNode(canvas, parentNode, distanceY);
 
-			let wholeHeight = 0;
-			let parentEdges = canvas.getEdgesForNode(parentNode).filter((item: any) => {
-				return (item.from.node.id === parentNode.id && item.to.side === "left")
-			});
-
-			let allnodes = [];
-			for (let i = 0; i < parentEdges.length; i++) {
-				let node = parentEdges[i].to.node;
-				allnodes.push(node);
-				wholeHeight += (node.height + 20);
-			}
-			allnodes.sort((a: any, b: any) => {
-				return a.y - b.y;
-			});
-
-			adjustNodes(parentNode,allnodes,canvas)
+			adjustNodes(getRootNode(parentNode,canvas),canvas);
 	
 			return tempChildNode;
 		}
